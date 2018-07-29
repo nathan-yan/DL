@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore", message="numpy.dtype size changed", category = RuntimeWarning)
+
 import pickle
 
 import matplotlib.pyplot as plt 
@@ -18,14 +21,30 @@ class STN(nn.Module):
         super(STN, self).__init__()
 
         self.image_dimensions = image_dimensions
-        self.target_coordinates = [[[x, y, 1] for x in range (image_dimensions[1])] for y in range (image_dimensions[0])]
+        target_coordinates = torch.tensor(
+                                                [
+                                                    [
+                                                        [y, x, 1] for x in range (image_dimensions[1])
+                                                    ] for y in range (image_dimensions[0])
+                                                ], dtype = torch.float32)
+        
+        target_coordinates = target_coordinates.permute(2, 0, 1)
+        self.target_coordinates = target_coordinates.view(1, 3, -1)
 
         # Define localization network
         self.localization_network = localization_network 
         self.add_module("localization_network", self.localization_network)
 
     def forward(self, x):
+        # transform => batchsize x 6
         transform = self.localization_network.forward(x)
+        transform = transform.view(-1, 2, 3)
+
+        # source_locations => batchsize x 2 x prod(image_dimensions)
+        source_locations = torch.matmul(transform, self.target_coordinates) 
+
+        x = source_locations[:, 1, :]
+        y = source_locations[:, 0, :]
 
 class LocalizationNetwork(nn.Module):
     def __init__(self, layers, activation = nn.ReLU):
@@ -60,8 +79,31 @@ class LocalizationNetwork(nn.Module):
         return x
 
 def main():
-    
-    #a = STN(3)
+    image_dimensions = [3, 3]
+    target_coordinates = torch.tensor([[[y, x, 1] for x in range (image_dimensions[1])] for y in range (image_dimensions[0])], dtype = torch.float32)
+    target_coordinates = target_coordinates.permute(2, 0, 1)
+    target_coordinates = target_coordinates.view(3, -1)
+
+ #   target_coordinates = target_coordinates.repeat(2, 1, 1)
+    print(target_coordinates.size())
+    parameters = torch.tensor([[[
+        1, 1, 1
+    ],
+    [
+        1, 1, 1
+    ]], [
+        [
+        2, 2, 2
+    ],
+    [
+        2, 2, 2
+    ]
+    ]], dtype = torch.float32)
+    print(parameters.size())
+
+    print(torch.matmul(parameters, target_coordinates))
+
+    a = STN(3)
 
     for i in a.parameters():
         print(i)
