@@ -107,17 +107,17 @@ def main():
     # The chaRNN processes the data 128 characters at a time, each iteration retaining the last hidden and cell of the previous iteration
     # Every 8192 characters the network completely resets
     
-    hidden_states, cell_states = generateState(layers)
-
-    lstm1 = LSTM(OUTPUT_SIZE, HIDDEN_SIZE)
-    lstm2 = LSTM(HIDDEN_SIZE, HIDDEN_SIZE)
-    lstm3 = LSTM(HIDDEN_SIZE, HIDDEN_SIZE)
-    lstm4 = LSTM(HIDDEN_SIZE, OUTPUT_SIZE)
+    layers = [
+        LSTM(OUTPUT_SIZE, HIDDEN_SIZE),
+        LSTM(HIDDEN_SIZE, HIDDEN_SIZE),
+        LSTM(HIDDEN_SIZE, HIDDEN_SIZE),
+        LSTM(HIDDEN_SIZE, OUTPUT_SIZE)
+    ]
 
     cumulative_loss = 0
 
     parameters = []
-    for layer in [lstm1, lstm2, lstm3, lstm4]:
+    for layer in layers:
         for p in layer.parameters():
             parameters.append(p)
 
@@ -129,30 +129,11 @@ def main():
     if (not gpu_count):
         print("Using CPU...")
     else:
-        lstm1.cuda(device)
-        lstm2.cuda(device)
-        lstm3.cuda(device)
-        lstm4.cuda(device)
-
-        h1.cuda(device)
-        c1.cuda(device)
-        
-        h2.cuda(device)
-        c2.cuda(device)
-        
-        h3.cuda(device)
-        c3.cuda(device)
-
-        h4.cuda(device)
-        c4.cuda(device)
-
-    print(h1)
-
+        for l in layers:
+            l.cuda(device)
+            
     for epoch in range (100000):
-        h1, c1 = torch.zeros([1, HIDDEN_SIZE], device = device), torch.zeros([1, HIDDEN_SIZE], device = device)
-        h2, c2 = torch.zeros([1, HIDDEN_SIZE], device = device), torch.zeros([1, HIDDEN_SIZE], device = device)
-        h3, c3 = torch.zeros([1, HIDDEN_SIZE], device = device), torch.zeros([1, HIDDEN_SIZE], device = device)
-        h4, c4 = torch.zeros([1, OUTPUT_SIZE], device = device), torch.zeros([1, OUTPUT_SIZE], device = device)
+        hidden_states, cell_states = generateState(layers)
 
         for c in range (length - 1):
             onehot = torch.zeros([1, OUTPUT_SIZE], dtype = torch.float32, device = device)
@@ -174,20 +155,23 @@ def main():
             onehot.cuda(device)
             target.cuda(device)
 
-            h1, c1 = lstm1.forward(onehot, h1, c1)
-            h2, c2 = lstm2.forward(h1, h2, c2)
-            h3, c3 = lstm3.forward(h2, h3, c3)
-            h4, c4 = lstm4.forward(h3, h4, c4)
-
-            output = nn.Softmax(dim = 1)(h4) 
+            for i, layer in enumerate(layers):
+                if i == 0:
+                    hidden_states[i], cell_states[i] = layer.forward(onehot, hidden_states[i], cell_states[i]) 
+                else:
+                    hidden_states[i], cell_states[i] = layer.forward(hidden_states[i - 1], hidden_states[i], cell_states[i]) 
+            
+            output = nn.Softmax(dim = 1)(hidden_states[-1]) 
 
             loss = -torch.log(torch.sum(output * target))
             #print(output, target)
             cumulative_loss += loss
 
             if c % 50 == 0 and c != 0:
-                print("LOSS -", torch.mean(cumulative_loss))
-                average_loss = torch.mean(cumulative_loss)
+                if c % 1000 == 0:
+                    print("LOSS -", cumulative_loss / 50.)
+
+                average_loss = cumulative_loss / 50.
 
                 average_loss.backward()
                 optimizer.step()
@@ -195,44 +179,15 @@ def main():
 
                 cumulative_loss = 0
 
-                h1, c1 = torch.tensor(h1.data, device = device), torch.tensor(c1.data, device = device)
-                h2, c2 = torch.tensor(h2.data, device = device), torch.tensor(c2.data, device = device)
-                h3, c3 = torch.tensor(h3.data, device = device), torch.tensor(c3.data, device = device)
-                h4, c4 = torch.tensor(h4.data, device = device), torch.tensor(c4.data, device = device)
+                for l in range (len(layers)):
+                    hidden_states[l], cell_states[l] = torch.tensor(hidden_states[l].data, device = device), torch.tensor(cell_states[l].data, device = device)
 
-                h1.cuda(device)
-                c1.cuda(device)
-                
-                h2.cuda(device)
-                c2.cuda(device)
-                
-                h3.cuda(device)
-                c3.cuda(device)
-
-                h4.cuda(device)
-                c4.cuda(device)
-            
             if c % 8000 == 0:
-                h1, c1 = torch.zeros([1, HIDDEN_SIZE], device = device), torch.zeros([1, HIDDEN_SIZE], device = device)
-                h2, c2 = torch.zeros([1, HIDDEN_SIZE], device = device), torch.zeros([1, HIDDEN_SIZE], device = device)
-                h3, c3 = torch.zeros([1, HIDDEN_SIZE], device = device), torch.zeros([1, HIDDEN_SIZE], device = device)
-                h4, c4 = torch.zeros([1, OUTPUT_SIZE], device = device), torch.zeros([1, OUTPUT_SIZE], device = device)
-
-                h1.cuda(device)
-                c1.cuda(device)
-                
-                h2.cuda(device)
-                c2.cuda(device)
-                
-                h3.cuda(device)
-                c3.cuda(device)
-
-                h4.cuda(device)
-                c4.cuda(device)
+                hidden_states, cell_states = generateState(layers)
              
             if c % 8000 == 0:
                 # Randomly sample from the network to see its progress
-                sample([lstm1, lstm2, lstm3, lstm4], init = 0)
+                sample(layers, init = 0)
 
     # lstm1 = LSTM(10, 100)
 
