@@ -37,4 +37,5 @@ def createDataset(path = '../datasets/linux', write_path = '../datasets/linux_co
 
             f.close()
 
-createDataset()
+if __name__ == "__main__":
+    createDataset()
